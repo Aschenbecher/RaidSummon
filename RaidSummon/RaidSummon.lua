@@ -29,14 +29,6 @@ local options = {
 					set = "SetOptionZone",
 					order = 12,
 				},
-				flashwindow = {
-					type = "toggle",
-					name = L["OptionFlashwindowName"],
-					desc = L["OptionFlashwindowDesc"],
-					get = "GetOptionFlashwindow",
-					set = "SetOptionFlashwindow",
-					order = 13,
-				},
 			}
 		},
 		commands = {
@@ -168,7 +160,6 @@ local defaults = {
 	profile = {
 		whisper = true,
 		zone = true,
-		flashwindow = true,
 		keywordsinit = false
 	}
 }
@@ -181,6 +172,7 @@ function RaidSummon:OnEnable()
 	self:RegisterEvent("CHAT_MSG_RAID", "msgParser")
 	self:RegisterEvent("CHAT_MSG_PARTY", "msgParser")
 	self:RegisterEvent("CHAT_MSG_RAID_LEADER", "msgParser")
+	self:RegisterEvent("CHAT_MSG_PARTY_LEADER", "msgParser")
 	self:RegisterEvent("CHAT_MSG_SAY", "msgParser")
 	self:RegisterEvent("CHAT_MSG_YELL", "msgParser")
 	self:RegisterEvent("CHAT_MSG_WHISPER", "msgParser")
@@ -253,13 +245,17 @@ function RaidSummon:OnInitialize()
 end
 
 --Handle CHAT_MSG Events here
+function RaidSummon:GetChatType()
+	return IsInRaid() and "RAID" or "PARTY"
+end
+
 function RaidSummon:msgParser(eventName,...)
-	if eventName == "CHAT_MSG_SAY" or eventName == "CHAT_MSG_RAID" or eventName == "CHAT_MSG_PARTY" or eventName == "CHAT_MSG_RAID_LEADER" or eventName == "CHAT_MSG_YELL" or eventName == "CHAT_MSG_WHISPER" then
+	if eventName == "CHAT_MSG_SAY" or eventName == "CHAT_MSG_RAID" or eventName == "CHAT_MSG_PARTY" or eventName == "CHAT_MSG_RAID_LEADER" or eventName == "CHAT_MSG_PARTY_LEADER" or eventName == "CHAT_MSG_YELL" or eventName == "CHAT_MSG_WHISPER" then
 		local text, playerName, languageName, channelName, playerName2   = ...
 
 		for i, v in ipairs(self.db.profile.keywords) do
 			if string.find(text, v) then
-				RaidSummon:SendCommMessage(COMM_PREFIX_ADD, playerName2, "RAID")
+				RaidSummon:SendCommMessage(COMM_PREFIX_ADD, playerName2, RaidSummon:GetChatType())
 			end
 		end
 	end
@@ -298,9 +294,6 @@ function RaidSummon:OnCommReceived(prefix, message, distribution, sender)
 						if message == RaidMembersDBvalue.rName then
 							table.insert(RaidSummonSyncDB, message)
 							RaidSummon:UpdateList()
-							if self.db.profile.flashwindow then
-								FlashClientIcon()
-							end
 						end
 					end
 				end
@@ -317,9 +310,6 @@ function RaidSummon:OnCommReceived(prefix, message, distribution, sender)
 							table.insert(RaidSummonSyncDB, message)
 							print(L["MemberAdded"](message,sender))
 							RaidSummon:UpdateList()
-							if self.db.profile.flashwindow then
-								FlashClientIcon()
-							end
 						end
 					end
 				end
@@ -347,7 +337,7 @@ function RaidSummon:OnCommReceived(prefix, message, distribution, sender)
 			end
 		elseif prefix == COMM_PREFIX_ADD_ALL then
 			--print("COMM_PREFIX_ADD_ALL "..message)
-			if IsInRaid() then
+			if IsInGroup() then
 				local members = GetNumGroupMembers()
 				if (members > 0) then
 
@@ -394,24 +384,16 @@ function RaidSummon:NameListButton_PreClick(source, button)
 	RaidSummon:getRaidMembers()
 
 	if RaidSummonRaidMembersDB then
-		for i, v in ipairs (RaidSummonRaidMembersDB) do
-			if v.rName == name then
-				raidIndex = "raid"..v.rIndex
+		--set target when not in combat (securetemplate)
+		if not InCombatLockdown() then
+			if RaidSummonRaidMembersDB then
+				source:SetAttribute("type1", "target")
+				source:SetAttribute("unit", name)
 			end
-		end
-
-		if raidIndex then
-			--set target when not in combat (securetemplate)
-			if not InCombatLockdown() then
-				if RaidSummonRaidMembersDB then
-					source:SetAttribute("type1", "target")
-					source:SetAttribute("unit", raidIndex)
-				end
-				source:SetAttribute("type2", "spell")
-				source:SetAttribute("spell", "698") --698 - Ritual of Summoning
-			else
-				print(L["Lockdown"])
-			end
+			source:SetAttribute("type2", "spell")
+			source:SetAttribute("spell", "698") --698 - Ritual of Summoning
+		else
+			print(L["Lockdown"])
 		end
 	end
 
@@ -426,11 +408,6 @@ function RaidSummon:NameListButton_PreClick(source, button)
 				return
 			end
 
-			if UnitPower("player") < 300 then
-				print(L["NotEnoughMana"])
-				return
-			end
-			
 			if GetZoneText() == "" then
 				zonetext = nil
 			else
@@ -444,26 +421,26 @@ function RaidSummon:NameListButton_PreClick(source, button)
 			end
 
 			if self.db.profile.zone and self.db.profile.whisper and zonetext and subzonetext then
-				SendChatMessage(L["SummonAnnounceRZS"](targetname, zonetext, subzonetext), "RAID")
+				SendChatMessage(L["SummonAnnounceRZS"](targetname, zonetext, subzonetext), RaidSummon:GetChatType())
 				SendChatMessage(L["SummonAnnounceWZS"](zonetext, subzonetext), "WHISPER", nil, targetname)
 			elseif self.db.profile.zone and self.db.profile.whisper and zonetext and not subzonetext then
-				SendChatMessage(L["SummonAnnounceRZ"](targetname, zonetext), "RAID")
+				SendChatMessage(L["SummonAnnounceRZ"](targetname, zonetext), RaidSummon:GetChatType())
 				SendChatMessage(L["SummonAnnounceWZ"](zonetext), "WHISPER", nil, targetname)
 			elseif self.db.profile.zone and not self.db.profile.whisper and zonetext and subzonetext then
-				SendChatMessage(L["SummonAnnounceRZS"](targetname, zonetext, subzonetext), "RAID")
+				SendChatMessage(L["SummonAnnounceRZS"](targetname, zonetext, subzonetext), RaidSummon:GetChatType())
 			elseif self.db.profile.zone and not self.db.profile.whisper and zonetext and not subzonetext then
-				SendChatMessage(L["SummonAnnounceRZ"](targetname, zonetext), "RAID")
+				SendChatMessage(L["SummonAnnounceRZ"](targetname, zonetext), RaidSummon:GetChatType())
 			elseif not self.db.profile.zone and self.db.profile.whisper then
-				SendChatMessage(L["SummonAnnounceR"](targetname), "RAID")
+				SendChatMessage(L["SummonAnnounceR"](targetname), RaidSummon:GetChatType())
 				SendChatMessage(L["SummonAnnounceW"], "WHISPER", nil, targetname)
 			elseif not self.db.profile.zone and not self.db.profile.whisper then
-				SendChatMessage(L["SummonAnnounceR"](targetname), "RAID")
+				SendChatMessage(L["SummonAnnounceR"](targetname), RaidSummon:GetChatType())
 			else
 				print(L["SummonAnnounceError"])
 			end
 			for i, v in ipairs (RaidSummonSyncDB) do
 				if v == targetname then
-					RaidSummon:SendCommMessage(COMM_PREFIX_REMOVE, targetname, "RAID")
+					RaidSummon:SendCommMessage(COMM_PREFIX_REMOVE, targetname, RaidSummon:GetChatType())
 				end
 			end
 		else
@@ -472,7 +449,7 @@ function RaidSummon:NameListButton_PreClick(source, button)
 	elseif buttonName == "LeftButton" and IsControlKeyDown() then
 		for i, v in ipairs (RaidSummonSyncDB) do
 			if v == name then
-				RaidSummon:SendCommMessage(COMM_PREFIX_REMOVE_MANUAL, name, "RAID")
+				RaidSummon:SendCommMessage(COMM_PREFIX_REMOVE_MANUAL, name, RaidSummon:GetChatType())
 			end
 		end
 	end
@@ -488,7 +465,7 @@ function RaidSummon:UpdateList()
 	local className, classFilename, classID = UnitClass("player")
 	if classFilename == "WARLOCK" then
 
-		if IsInRaid() then
+		if IsInGroup() then
 
 			--get raid member data
 			RaidSummon:getRaidMembers()
@@ -567,7 +544,7 @@ end
 --collects raid member information to RaidSummonRaidMembersDB
 function RaidSummon:getRaidMembers()
 
-	if IsInRaid() then
+	if IsInGroup() then
 
 		local members = GetNumGroupMembers()
 
@@ -657,10 +634,6 @@ function RaidSummon:GetOptionZone(info)
 	return self.db.profile.zone
 end
 
-function RaidSummon:GetOptionFlashwindow(info)
-	return self.db.profile.flashwindow
-end
-
 function RaidSummon:SetOptionWhisper(info, value)
 	self.db.profile.whisper = value
 	if value == true then
@@ -676,15 +649,6 @@ function RaidSummon:SetOptionZone(info, value)
 		print(L["OptionZoneEnabled"])
 	else
 		print(L["OptionZoneDisabled"])
-	end
-end
-
-function RaidSummon:SetOptionFlashwindow(info, value)
-	self.db.profile.flashwindow = value
-	if value == true then
-		print(L["OptionFlashwindowEnabled"])
-	else
-		print(L["OptionFlashwindowDisabled"])
 	end
 end
 
@@ -730,14 +694,14 @@ end
 
 --Add / Remove Options Functions
 function RaidSummon:SetOptionAdd(info, input)
-	if (input and input:trim() ~= "") then
-		RaidSummon:SendCommMessage(COMM_PREFIX_ADD_MANUAL, input, "RAID")
+	if (input) then
+		RaidSummon:SendCommMessage(COMM_PREFIX_ADD_MANUAL, input, RaidSummon:GetChatType())
 	end
 end
 
 function RaidSummon:SetOptionRemove(info, input)
-	if (input and input:trim() ~= "") then
-		RaidSummon:SendCommMessage(COMM_PREFIX_REMOVE_MANUAL, input, "RAID")
+	if (input) then
+		RaidSummon:SendCommMessage(COMM_PREFIX_REMOVE_MANUAL, input, RaidSummon:GetChatType())
 	end
 end
 
@@ -756,7 +720,7 @@ function RaidSummon:ValuesRemoveSel(info)
 end
 
 function RaidSummon:ExecuteAddAll()
-	RaidSummon:SendCommMessage(COMM_PREFIX_ADD_ALL, COMM_PREFIX_ADD_ALL, "RAID")
+	RaidSummon:SendCommMessage(COMM_PREFIX_ADD_ALL, COMM_PREFIX_ADD_ALL, RaidSummon:GetChatType())
 end
 
 --Keyword Options Functions
